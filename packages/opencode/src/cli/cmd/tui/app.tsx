@@ -25,6 +25,7 @@ import { Session } from "@tui/routes/session"
 import { PromptHistoryProvider } from "./component/prompt/history"
 import { PromptStashProvider } from "./component/prompt/stash"
 import { DialogAlert } from "./ui/dialog-alert"
+import { DialogElicitation } from "./ui/dialog-elicitation"
 import { ToastProvider, useToast } from "./ui/toast"
 import { ExitProvider, useExit } from "./context/exit"
 import { Session as SessionApi } from "@/session"
@@ -554,6 +555,43 @@ function App() {
       type: "session",
       sessionID: evt.properties.sessionID,
     })
+  })
+
+  sdk.event.on(TuiEvent.ElicitationRequest.type, async (evt) => {
+    console.log("Elicitation request received in TUI:", evt.properties.id)
+    
+    const result = await DialogElicitation.show(
+      dialog,
+      evt.properties.message,
+      evt.properties.fields,
+    )
+
+    const action = result === null ? "cancel" : "accept"
+    console.log("Elicitation dialog completed:", { action, result })
+    
+    // Send response back to server via SDK tui.publish
+    try {
+      console.log("About to send elicitation response")
+      console.log("Event ID:", evt.properties.id)
+      console.log("Action:", action)
+      console.log("Content:", result)
+      
+      console.log("Sending elicitation response via elicitationResponse endpoint")
+      const response = await sdk.client.tui.elicitationResponse({
+        id: evt.properties.id,
+        action,
+        content: result ?? undefined,
+      })
+      console.log("Elicitation response sent, success:", !response.error)
+    } catch (error) {
+      console.error("Failed to send elicitation response:", error)
+      // Show error to user
+      toast.show({
+        variant: "error",
+        message: "Failed to send form response",
+        duration: 3000,
+      })
+    }
   })
 
   sdk.event.on(SessionApi.Event.Deleted.type, (evt) => {

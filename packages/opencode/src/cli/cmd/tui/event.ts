@@ -43,4 +43,27 @@ export const TuiEvent = {
       sessionID: z.string().regex(/^ses/).describe("Session ID to navigate to"),
     }),
   ),
+  ElicitationRequest: BusEvent.define(
+    "tui.elicitation.request",
+    z.object({
+      id: z.string().describe("Unique ID for this elicitation request"),
+      message: z.string().describe("Message to show the user"),
+      fields: z.array(z.object({
+        key: z.string(),
+        type: z.enum(["string", "number", "integer", "boolean"]),
+        description: z.string().optional(),
+        default: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+        minimum: z.number().optional(),
+        maximum: z.number().optional(),
+      })),
+    }),
+  ),
+  ElicitationResponse: BusEvent.define(
+    "tui.elicitation.response",
+    z.object({
+      id: z.string().describe("ID of the elicitation request"),
+      action: z.enum(["accept", "decline", "cancel"]),
+      content: z.object({}).passthrough().optional(),
+    }),
+  ),
 }

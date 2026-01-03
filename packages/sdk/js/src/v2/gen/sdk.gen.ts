@@ -18,6 +18,8 @@ import type {
   ConfigUpdateResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
+  EventTuiElicitationRequest,
+  EventTuiElicitationResponse,
   EventTuiPromptAppend,
   EventTuiSessionSelect,
   EventTuiToastShow,
@@ -137,6 +139,8 @@ import type {
   TuiClearPromptResponses,
   TuiControlNextResponses,
   TuiControlResponseResponses,
+  TuiElicitationResponseErrors,
+  TuiElicitationResponseResponses,
   TuiExecuteCommandErrors,
   TuiExecuteCommandResponses,
   TuiOpenHelpResponses,
@@ -2494,6 +2498,51 @@ export class Tui extends HeyApiClient {
   }
 
   /**
+   * Elicitation response
+   *
+   * Send elicitation response from TUI to MCP handler
+   */
+  public elicitationResponse<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      id?: string
+      action?: "accept" | "decline" | "cancel"
+      content?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "body", key: "id" },
+            { in: "body", key: "action" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TuiElicitationResponseResponses,
+      TuiElicitationResponseErrors,
+      ThrowOnError
+    >({
+      url: "/tui/elicitation-response",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Open help dialog
    *
    * Open the help dialog in the TUI to display user assistance information.
@@ -2691,7 +2740,13 @@ export class Tui extends HeyApiClient {
   public publish<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
-      body?: EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect
+      body?:
+        | EventTuiPromptAppend
+        | EventTuiCommandExecute
+        | EventTuiToastShow
+        | EventTuiSessionSelect
+        | EventTuiElicitationRequest
+        | EventTuiElicitationResponse
     },
     options?: Options<never, ThrowOnError>,
   ) {

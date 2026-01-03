@@ -602,6 +602,42 @@ export type EventTuiSessionSelect = {
   }
 }
 
+export type EventTuiElicitationRequest = {
+  type: "tui.elicitation.request"
+  properties: {
+    /**
+     * Unique ID for this elicitation request
+     */
+    id: string
+    /**
+     * Message to show the user
+     */
+    message: string
+    fields: Array<{
+      key: string
+      type: "string" | "number" | "integer" | "boolean"
+      description?: string
+      default?: string | number | boolean | null
+      minimum?: number
+      maximum?: number
+    }>
+  }
+}
+
+export type EventTuiElicitationResponse = {
+  type: "tui.elicitation.response"
+  properties: {
+    /**
+     * ID of the elicitation request
+     */
+    id: string
+    action: "accept" | "decline" | "cancel"
+    content?: {
+      [key: string]: unknown
+    }
+  }
+}
+
 export type EventMcpToolsChanged = {
   type: "mcp.tools.changed"
   properties: {
@@ -787,6 +823,8 @@ export type Event =
   | EventTuiCommandExecute
   | EventTuiToastShow
   | EventTuiSessionSelect
+  | EventTuiElicitationRequest
+  | EventTuiElicitationResponse
   | EventMcpToolsChanged
   | EventCommandExecuted
   | EventSessionCreated
@@ -4157,6 +4195,42 @@ export type TuiAppendPromptResponses = {
 
 export type TuiAppendPromptResponse = TuiAppendPromptResponses[keyof TuiAppendPromptResponses]
 
+export type TuiElicitationResponseData = {
+  body?: {
+    /**
+     * ID of the elicitation request
+     */
+    id: string
+    action: "accept" | "decline" | "cancel"
+    content?: {
+      [key: string]: unknown
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/tui/elicitation-response"
+}
+
+export type TuiElicitationResponseErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TuiElicitationResponseError = TuiElicitationResponseErrors[keyof TuiElicitationResponseErrors]
+
+export type TuiElicitationResponseResponses = {
+  /**
+   * Response processed successfully
+   */
+  200: boolean
+}
+
+export type TuiElicitationResponseResponse = TuiElicitationResponseResponses[keyof TuiElicitationResponseResponses]
+
 export type TuiOpenHelpData = {
   body?: never
   path?: never
@@ -4321,7 +4395,13 @@ export type TuiShowToastResponses = {
 export type TuiShowToastResponse = TuiShowToastResponses[keyof TuiShowToastResponses]
 
 export type TuiPublishData = {
-  body?: EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect
+  body?:
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
+    | EventTuiElicitationRequest
+    | EventTuiElicitationResponse
   path?: never
   query?: {
     directory?: string

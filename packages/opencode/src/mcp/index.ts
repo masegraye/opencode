@@ -199,24 +199,66 @@ export namespace MCP {
       log.info("elicit request received", { server: serverName, mode: request.params?.mode })
       
       try {
-        // TODO: For now, we'll auto-accept with empty content to allow the flow to continue
-        // A full implementation would show a UI form to the user based on requestedSchema
-        
-        // For "form" mode, we should present the schema fields to the user
-        // For "url" mode, we should open the URL
-        // For now, we'll just return accept with the schema defaults
-        
-        const response: ElicitResult = {
-          action: "accept",
-          content: request.params?.requestedSchema?.properties 
-            ? Object.fromEntries(
-                Object.entries(request.params.requestedSchema.properties).map(([key, prop]: [string, any]) => [
-                  key,
-                  prop.default ?? (prop.type === "number" ? 0 : prop.type === "boolean" ? false : ""),
-                ])
-              )
-            : {},
+        // Parse the schema into fields for the UI
+        const schema = request.params?.requestedSchema
+        if (!schema || !schema.properties) {
+          log.warn("elicit request missing schema", { server: serverName })
+          return { action: "cancel" as const, content: {} }
         }
+
+        // Convert JSON Schema to our field format
+        const fields = Object.entries(schema.properties).map(([key, prop]: [string, any]) => ({
+          key,
+          type: prop.type as "string" | "number" | "integer" | "boolean",
+          description: prop.description,
+          default: prop.default,
+          minimum: prop.minimum,
+          maximum: prop.maximum,
+        }))
+
+        // Generate a unique ID for this request
+        const elicitId = `elicit_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+
+        // Publish event to TUI and wait for response
+        const response = await new Promise<ElicitResult>((resolve) => {
+          // Subscribe to response event
+          log.info("subscribing to elicitation response", { server: serverName, id: elicitId })
+          const unsubscribe = Bus.subscribe(TuiEvent.ElicitationResponse, (event) => {
+            log.info("elicitation response event received", { 
+              server: serverName, 
+              eventId: event.properties.id, 
+              expectedId: elicitId,
+              matches: event.properties.id === elicitId,
+            })
+            if (event.properties.id === elicitId) {
+              unsubscribe()
+              log.info("resolving elicitation", { server: serverName, action: event.properties.action })
+              resolve({
+                action: event.properties.action,
+                content: event.properties.content ?? {},
+              })
+            }
+          })
+
+          // Publish request to TUI
+          log.info("publishing elicitation request to TUI", { server: serverName, id: elicitId })
+          Bus.publish(TuiEvent.ElicitationRequest, {
+            id: elicitId,
+            message: request.params.message || "Please review and adjust these values:",
+            fields,
+          }).catch((e) => {
+            unsubscribe()
+            log.error("failed to publish elicitation request", { error: e })
+            resolve({ action: "cancel", content: {} })
+          })
+
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            unsubscribe()
+            log.warn("elicitation request timed out", { server: serverName, id: elicitId })
+            resolve({ action: "cancel", content: {} })
+          }, 300000)
+        })
         
         log.info("elicit response", { server: serverName, action: response.action })
         

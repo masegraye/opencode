@@ -2358,6 +2358,32 @@ export namespace Server {
         },
       )
       .post(
+        "/tui/elicitation-response",
+        describeRoute({
+          summary: "Elicitation response",
+          description: "Send elicitation response from TUI to MCP handler",
+          operationId: "tui.elicitationResponse",
+          responses: {
+            200: {
+              description: "Response processed successfully",
+              content: {
+                "application/json": {
+                  schema: resolver(z.boolean()),
+                },
+              },
+            },
+            ...errors(400),
+          },
+        }),
+        validator("json", TuiEvent.ElicitationResponse.properties),
+        async (c) => {
+          const body = c.req.valid("json")
+          log.info("elicitation-response endpoint received", { body })
+          await Bus.publish(TuiEvent.ElicitationResponse, body)
+          return c.json(true)
+        },
+      )
+      .post(
         "/tui/open-help",
         describeRoute({
           summary: "Open help dialog",
@@ -2596,9 +2622,28 @@ export namespace Server {
           ),
         ),
         async (c) => {
-          const evt = c.req.valid("json")
-          await Bus.publish(Object.values(TuiEvent).find((def) => def.type === evt.type)!, evt.properties)
-          return c.json(true)
+          log.info("!!!!! TUI PUBLISH HANDLER EXECUTING !!!!!")
+          try {
+            console.error("[TUI-PUBLISH] Handler called")
+            log.info("tui.publish handler START")
+            const evt = c.req.valid("json")
+            console.error("[TUI-PUBLISH] Event type:", evt.type)
+            log.info("tui.publish endpoint called", { type: evt.type, properties: evt.properties })
+            const eventDef = Object.values(TuiEvent).find((def) => def.type === evt.type)
+            if (!eventDef) {
+              console.error("[TUI-PUBLISH] Unknown event type:", evt.type)
+              log.error("unknown TUI event type", { type: evt.type })
+              return c.json(false)
+            }
+            console.error("[TUI-PUBLISH] Publishing to bus:", evt.type)
+            await Bus.publish(eventDef, evt.properties)
+            console.error("[TUI-PUBLISH] Publish completed")
+            log.info("tui.publish completed", { type: evt.type })
+            return c.json(true)
+          } catch (err) {
+            console.error("[TUI-PUBLISH] Exception:", err)
+            throw err
+          }
         },
       )
       .post(
