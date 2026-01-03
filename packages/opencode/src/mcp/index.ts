@@ -12,6 +12,10 @@ import {
   CreateMessageRequestSchema,
   type CreateMessageParams,
   type CreateMessageResult,
+  ElicitRequestSchema,
+  ElicitResultSchema,
+  type ElicitRequest,
+  type ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
 import { Log } from "../util/log"
@@ -183,6 +187,42 @@ export namespace MCP {
         return response
       } catch (error) {
         log.error("sampling failed", {
+          server: serverName,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
+    })
+
+    // Handle elicitation/elicit requests from the server (user input prompts)
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      log.info("elicit request received", { server: serverName, mode: request.params?.mode })
+      
+      try {
+        // TODO: For now, we'll auto-accept with empty content to allow the flow to continue
+        // A full implementation would show a UI form to the user based on requestedSchema
+        
+        // For "form" mode, we should present the schema fields to the user
+        // For "url" mode, we should open the URL
+        // For now, we'll just return accept with the schema defaults
+        
+        const response: ElicitResult = {
+          action: "accept",
+          content: request.params?.requestedSchema?.properties 
+            ? Object.fromEntries(
+                Object.entries(request.params.requestedSchema.properties).map(([key, prop]: [string, any]) => [
+                  key,
+                  prop.default ?? (prop.type === "number" ? 0 : prop.type === "boolean" ? false : ""),
+                ])
+              )
+            : {},
+        }
+        
+        log.info("elicit response", { server: serverName, action: response.action })
+        
+        return response
+      } catch (error) {
+        log.error("elicit failed", {
           server: serverName,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -388,6 +428,7 @@ export namespace MCP {
             {
               capabilities: {
                 sampling: {},
+                elicitation: {},
               },
             },
           )
@@ -471,6 +512,7 @@ export namespace MCP {
           {
             capabilities: {
               sampling: {},
+              elicitation: {},
             },
           },
         )
@@ -765,6 +807,7 @@ export namespace MCP {
         {
           capabilities: {
             sampling: {},
+            elicitation: {},
           },
         },
       )
