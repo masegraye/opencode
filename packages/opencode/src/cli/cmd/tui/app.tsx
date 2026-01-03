@@ -558,8 +558,6 @@ function App() {
   })
 
   sdk.event.on(TuiEvent.ElicitationRequest.type, async (evt) => {
-    console.log("Elicitation request received in TUI:", evt.properties.id)
-    
     const result = await DialogElicitation.show(
       dialog,
       evt.properties.message,
@@ -567,25 +565,16 @@ function App() {
     )
 
     const action = result === null ? "cancel" : "accept"
-    console.log("Elicitation dialog completed:", { action, result })
     
-    // Send response back to server via SDK tui.publish
+    // Send response back to server
     try {
-      console.log("About to send elicitation response")
-      console.log("Event ID:", evt.properties.id)
-      console.log("Action:", action)
-      console.log("Content:", result)
-      
-      console.log("Sending elicitation response via elicitationResponse endpoint")
-      const response = await sdk.client.tui.elicitationResponse({
+      await sdk.client.tui.elicitationResponse({
         id: evt.properties.id,
         action,
         content: result ?? undefined,
       })
-      console.log("Elicitation response sent, success:", !response.error)
     } catch (error) {
       console.error("Failed to send elicitation response:", error)
-      // Show error to user
       toast.show({
         variant: "error",
         message: "Failed to send form response",

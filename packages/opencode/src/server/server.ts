@@ -2377,9 +2377,7 @@ export namespace Server {
         }),
         validator("json", TuiEvent.ElicitationResponse.properties),
         async (c) => {
-          const body = c.req.valid("json")
-          log.info("elicitation-response endpoint received", { body })
-          await Bus.publish(TuiEvent.ElicitationResponse, body)
+          await Bus.publish(TuiEvent.ElicitationResponse, c.req.valid("json"))
           return c.json(true)
         },
       )
@@ -2622,28 +2620,14 @@ export namespace Server {
           ),
         ),
         async (c) => {
-          log.info("!!!!! TUI PUBLISH HANDLER EXECUTING !!!!!")
-          try {
-            console.error("[TUI-PUBLISH] Handler called")
-            log.info("tui.publish handler START")
-            const evt = c.req.valid("json")
-            console.error("[TUI-PUBLISH] Event type:", evt.type)
-            log.info("tui.publish endpoint called", { type: evt.type, properties: evt.properties })
-            const eventDef = Object.values(TuiEvent).find((def) => def.type === evt.type)
-            if (!eventDef) {
-              console.error("[TUI-PUBLISH] Unknown event type:", evt.type)
-              log.error("unknown TUI event type", { type: evt.type })
-              return c.json(false)
-            }
-            console.error("[TUI-PUBLISH] Publishing to bus:", evt.type)
-            await Bus.publish(eventDef, evt.properties)
-            console.error("[TUI-PUBLISH] Publish completed")
-            log.info("tui.publish completed", { type: evt.type })
-            return c.json(true)
-          } catch (err) {
-            console.error("[TUI-PUBLISH] Exception:", err)
-            throw err
+          const evt = c.req.valid("json")
+          const eventDef = Object.values(TuiEvent).find((def) => def.type === evt.type)
+          if (!eventDef) {
+            log.error("unknown TUI event type", { type: evt.type })
+            return c.json(false)
           }
+          await Bus.publish(eventDef, evt.properties)
+          return c.json(true)
         },
       )
       .post(

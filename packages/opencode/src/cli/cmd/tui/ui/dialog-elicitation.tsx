@@ -55,14 +55,12 @@ export function DialogElicitation(props: DialogElicitationProps) {
     
     // If editing a text field - handle ALL keys to prevent dialog from processing them
     if (store.editing && field.type === "string") {
-      console.log("ELICIT HANDLER - In edit mode, handling key:", evt.name)
       evt.preventDefault()
       
       if (evt.name === "escape") {
-        console.log("ELICIT HANDLER - Escape in edit mode - canceling edit")
+        // Cancel edit
         setStore("editing", false)
         setStore("editBuffer", "")
-        console.log("ELICIT HANDLER - Edit cancelled, editing now:", store.editing)
         return
       }
       
@@ -88,13 +86,13 @@ export function DialogElicitation(props: DialogElicitationProps) {
     }
     
     // Not editing - handle dialog-level keys
-    if (evt.name === "return" && !store.editing) {
+    if (evt.name === "return") {
       props.onConfirm?.(store.values)
       dialog.clear()
       evt.preventDefault()
     }
     
-    if (evt.name === "escape" && !store.editing) {
+    if (evt.name === "escape") {
       props.onCancel?.()
       dialog.clear()
       evt.preventDefault()
@@ -137,10 +135,6 @@ export function DialogElicitation(props: DialogElicitationProps) {
       }
       evt.preventDefault()
     }
-  })
-
-  onMount(() => {
-    dialog.setSize("large")
   })
 
   const renderField = (field: ElicitationField, index: number, isActive: () => boolean, value: () => any) => {

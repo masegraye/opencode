@@ -1,8 +1,0 @@
-{
-  "name": "test-elicitation-server",
-  "version": "1.0.0",
-  "type": "commonjs",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
-  }
-}

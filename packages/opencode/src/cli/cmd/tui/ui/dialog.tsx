@@ -63,15 +63,12 @@ function init() {
     if (evt.name === "escape" && store.stack.length > 0) {
       // Check if event was already handled by a child component
       if (evt.defaultPrevented) {
-        console.log("Event already handled, skipping dialog close")
         return
       }
       // Check if child component wants to prevent escape from closing
       if (escapeCloseHandler()) {
-        console.log("Child preventing escape close, skipping dialog close")
         return
       }
-      console.log("Closing dialog from global handler")
       const current = store.stack.at(-1)!
       current.onClose?.()
       setStore("stack", store.stack.slice(0, -1))

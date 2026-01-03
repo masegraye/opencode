@@ -104,6 +104,18 @@ export namespace MCP {
     })
   }
 
+  // Convert MCP message format to AI SDK message format
+  function convertMCPMessagesToAISDK(messages: any[]) {
+    return messages.map((msg) => ({
+      role: msg.role,
+      content: typeof msg.content === "string" 
+        ? msg.content 
+        : msg.content.type === "text" 
+        ? msg.content.text 
+        : JSON.stringify(msg.content),
+    }))
+  }
+
   // Register request handlers for MCP client (for server-to-client requests)
   async function registerRequestHandlers(client: MCPClient, serverName: string) {
     // Handle sampling/createMessage requests from the server
@@ -126,53 +138,33 @@ export namespace MCP {
           modelInfo = await Provider.defaultModel()
         }
         
-        log.info("sampling", { 
-          server: serverName, 
-          provider: modelInfo.providerID,
-          model: modelInfo.modelID,
-        })
-        
         // Load the provider SDK directly
         let model
         if (modelInfo.providerID === "anthropic" || modelInfo.providerID === "anthropic-1m") {
           const { anthropic } = await import("@ai-sdk/anthropic")
           model = anthropic(modelInfo.modelID)
-        } else if (modelInfo.providerID === "openai" || modelInfo.providerID === "opencode") {
-          const { openai } = await import("@ai-sdk/openai")
-          model = openai(modelInfo.modelID)
-        } else if (modelInfo.providerID === "github-copilot" || modelInfo.providerID === "github-models") {
+        } else if (
+          modelInfo.providerID === "openai" ||
+          modelInfo.providerID === "opencode" ||
+          modelInfo.providerID === "github-copilot" ||
+          modelInfo.providerID === "github-models"
+        ) {
           const { openai } = await import("@ai-sdk/openai")
           model = openai(modelInfo.modelID)
         } else {
           throw new Error(`Unsupported provider for sampling: ${modelInfo.providerID}`)
         }
         
-        // Convert MCP messages to AI SDK format
-        const aiMessages = request.params.messages.map((msg) => ({
-          role: msg.role,
-          content: typeof msg.content === "string" 
-            ? msg.content 
-            : msg.content.type === "text" 
-            ? msg.content.text 
-            : JSON.stringify(msg.content),
-        }))
-        
         // Generate the message with no history, just the request
         const result = await generateText({
           model,
-          messages: aiMessages,
+          messages: convertMCPMessagesToAISDK(request.params.messages),
           maxTokens: request.params.maxTokens,
           system: request.params.systemPrompt,
           temperature: request.params.temperature,
         })
         
-        log.info("sampling completed", {
-          server: serverName,
-          textLength: result.text.length,
-          finishReason: result.finishReason,
-        })
-        
-        const response = {
+        return {
           role: "assistant" as const,
           content: {
             type: "text" as const,
@@ -181,10 +173,6 @@ export namespace MCP {
           model: `${modelInfo.providerID}/${modelInfo.modelID}`,
           stopReason: result.finishReason === "stop" ? "endTurn" : "maxTokens",
         }
-        
-        log.info("returning sampling result", { server: serverName })
-        
-        return response
       } catch (error) {
         log.error("sampling failed", {
           server: serverName,
@@ -206,10 +194,10 @@ export namespace MCP {
           return { action: "cancel" as const, content: {} }
         }
 
-        // Convert JSON Schema to our field format
+        // Convert JSON Schema properties to field format for UI
         const fields = Object.entries(schema.properties).map(([key, prop]: [string, any]) => ({
           key,
-          type: prop.type as "string" | "number" | "integer" | "boolean",
+          type: prop.type,
           description: prop.description,
           default: prop.default,
           minimum: prop.minimum,
@@ -221,18 +209,9 @@ export namespace MCP {
 
         // Publish event to TUI and wait for response
         const response = await new Promise<ElicitResult>((resolve) => {
-          // Subscribe to response event
-          log.info("subscribing to elicitation response", { server: serverName, id: elicitId })
           const unsubscribe = Bus.subscribe(TuiEvent.ElicitationResponse, (event) => {
-            log.info("elicitation response event received", { 
-              server: serverName, 
-              eventId: event.properties.id, 
-              expectedId: elicitId,
-              matches: event.properties.id === elicitId,
-            })
             if (event.properties.id === elicitId) {
               unsubscribe()
-              log.info("resolving elicitation", { server: serverName, action: event.properties.action })
               resolve({
                 action: event.properties.action,
                 content: event.properties.content ?? {},
@@ -240,15 +219,13 @@ export namespace MCP {
             }
           })
 
-          // Publish request to TUI
-          log.info("publishing elicitation request to TUI", { server: serverName, id: elicitId })
           Bus.publish(TuiEvent.ElicitationRequest, {
             id: elicitId,
             message: request.params.message || "Please review and adjust these values:",
             fields,
           }).catch((e) => {
             unsubscribe()
-            log.error("failed to publish elicitation request", { error: e })
+            log.error("failed to publish elicitation request", { server: serverName, error: e })
             resolve({ action: "cancel", content: {} })
           })
 
@@ -259,8 +236,6 @@ export namespace MCP {
             resolve({ action: "cancel", content: {} })
           }, 300000)
         })
-        
-        log.info("elicit response", { server: serverName, action: response.action })
         
         return response
       } catch (error) {
