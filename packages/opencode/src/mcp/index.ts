@@ -1,4 +1,4 @@
-import { dynamicTool, type Tool, jsonSchema, type JSONSchema7 } from "ai"
+import { dynamicTool, type Tool, jsonSchema, type JSONSchema7, generateText } from "ai"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
@@ -8,6 +8,10 @@ import {
   CallToolResultSchema,
   type Tool as MCPToolDef,
   ToolListChangedNotificationSchema,
+  CreateMessageResultSchema,
+  CreateMessageRequestSchema,
+  type CreateMessageParams,
+  type CreateMessageResult,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
 import { Log } from "../util/log"
@@ -93,6 +97,97 @@ export namespace MCP {
     client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
       log.info("tools list changed notification received", { server: serverName })
       Bus.publish(ToolsChanged, { server: serverName })
+    })
+  }
+
+  // Register request handlers for MCP client (for server-to-client requests)
+  async function registerRequestHandlers(client: MCPClient, serverName: string) {
+    // Handle sampling/createMessage requests from the server
+    client.setRequestHandler(CreateMessageRequestSchema, async (request) => {
+      log.info("createMessage request received", { server: serverName })
+      
+      try {
+        // Get config to determine which provider to use
+        const cfg = await Config.get()
+        const { Provider } = await import("../provider/provider")
+        
+        // Parse the requested or configured model
+        // Priority: 1) requested model, 2) configured model, 3) default model
+        let modelInfo
+        const requestedModel = request.params.modelPreferences?.hints?.[0]?.name
+        if (requestedModel && requestedModel.includes("/")) {
+          modelInfo = Provider.parseModel(requestedModel)
+        } else {
+          // Use the same model as the main agent is using
+          modelInfo = await Provider.defaultModel()
+        }
+        
+        log.info("sampling", { 
+          server: serverName, 
+          provider: modelInfo.providerID,
+          model: modelInfo.modelID,
+        })
+        
+        // Load the provider SDK directly
+        let model
+        if (modelInfo.providerID === "anthropic" || modelInfo.providerID === "anthropic-1m") {
+          const { anthropic } = await import("@ai-sdk/anthropic")
+          model = anthropic(modelInfo.modelID)
+        } else if (modelInfo.providerID === "openai" || modelInfo.providerID === "opencode") {
+          const { openai } = await import("@ai-sdk/openai")
+          model = openai(modelInfo.modelID)
+        } else if (modelInfo.providerID === "github-copilot" || modelInfo.providerID === "github-models") {
+          const { openai } = await import("@ai-sdk/openai")
+          model = openai(modelInfo.modelID)
+        } else {
+          throw new Error(`Unsupported provider for sampling: ${modelInfo.providerID}`)
+        }
+        
+        // Convert MCP messages to AI SDK format
+        const aiMessages = request.params.messages.map((msg) => ({
+          role: msg.role,
+          content: typeof msg.content === "string" 
+            ? msg.content 
+            : msg.content.type === "text" 
+            ? msg.content.text 
+            : JSON.stringify(msg.content),
+        }))
+        
+        // Generate the message with no history, just the request
+        const result = await generateText({
+          model,
+          messages: aiMessages,
+          maxTokens: request.params.maxTokens,
+          system: request.params.systemPrompt,
+          temperature: request.params.temperature,
+        })
+        
+        log.info("sampling completed", {
+          server: serverName,
+          textLength: result.text.length,
+          finishReason: result.finishReason,
+        })
+        
+        const response = {
+          role: "assistant" as const,
+          content: {
+            type: "text" as const,
+            text: result.text,
+          },
+          model: `${modelInfo.providerID}/${modelInfo.modelID}`,
+          stopReason: result.finishReason === "stop" ? "endTurn" : "maxTokens",
+        }
+        
+        log.info("returning sampling result", { server: serverName })
+        
+        return response
+      } catch (error) {
+        log.error("sampling failed", {
+          server: serverName,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
     })
   }
 
@@ -285,12 +380,20 @@ export namespace MCP {
       let lastError: Error | undefined
       for (const { name, transport } of transports) {
         try {
-          const client = new Client({
-            name: "opencode",
-            version: Installation.VERSION,
-          })
+          const client = new Client(
+            {
+              name: "opencode",
+              version: Installation.VERSION,
+            },
+            {
+              capabilities: {
+                sampling: {},
+              },
+            },
+          )
           await client.connect(transport)
           registerNotificationHandlers(client, key)
+          await registerRequestHandlers(client, key)
           mcpClient = client
           log.info("connected", { key, transport: name })
           status = { status: "connected" }
@@ -360,12 +463,20 @@ export namespace MCP {
       })
 
       try {
-        const client = new Client({
-          name: "opencode",
-          version: Installation.VERSION,
-        })
+        const client = new Client(
+          {
+            name: "opencode",
+            version: Installation.VERSION,
+          },
+          {
+            capabilities: {
+              sampling: {},
+            },
+          },
+        )
         await client.connect(transport)
         registerNotificationHandlers(client, key)
+        await registerRequestHandlers(client, key)
         mcpClient = client
         status = {
           status: "connected",
@@ -568,6 +679,29 @@ export namespace MCP {
   }
 
   /**
+   * Create a message using the MCP server's sampling/createMessage capability.
+   * This allows MCP servers to request the LLM to generate completions.
+   */
+  export async function createMessage(
+    clientName: string,
+    params: CreateMessageParams,
+  ): Promise<CreateMessageResult> {
+    const clientsSnapshot = await clients()
+    const client = clientsSnapshot[clientName]
+
+    if (!client) {
+      throw new Error(`MCP client not found: ${clientName}`)
+    }
+
+    const result = await client.request(
+      { method: "sampling/createMessage", params },
+      CreateMessageResultSchema,
+    )
+
+    return result
+  }
+
+  /**
    * Start OAuth authentication flow for an MCP server.
    * Returns the authorization URL that should be opened in a browser.
    */
@@ -623,10 +757,17 @@ export namespace MCP {
 
     // Try to connect - this will trigger the OAuth flow
     try {
-      const client = new Client({
-        name: "opencode",
-        version: Installation.VERSION,
-      })
+      const client = new Client(
+        {
+          name: "opencode",
+          version: Installation.VERSION,
+        },
+        {
+          capabilities: {
+            sampling: {},
+          },
+        },
+      )
       await client.connect(transport)
       // If we get here, we're already authenticated
       return { authorizationUrl: "" }
