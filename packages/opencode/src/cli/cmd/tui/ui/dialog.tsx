@@ -55,9 +55,23 @@ function init() {
     }[],
     size: "medium" as "medium" | "large",
   })
+  
+  // Store escape handler outside of reactive store to avoid unwrapping
+  let escapeCloseHandler = () => false
 
   useKeyboard((evt) => {
     if (evt.name === "escape" && store.stack.length > 0) {
+      // Check if event was already handled by a child component
+      if (evt.defaultPrevented) {
+        console.log("Event already handled, skipping dialog close")
+        return
+      }
+      // Check if child component wants to prevent escape from closing
+      if (escapeCloseHandler()) {
+        console.log("Child preventing escape close, skipping dialog close")
+        return
+      }
+      console.log("Closing dialog from global handler")
       const current = store.stack.at(-1)!
       current.onClose?.()
       setStore("stack", store.stack.slice(0, -1))
@@ -120,6 +134,9 @@ function init() {
     },
     setSize(size: "medium" | "large") {
       setStore("size", size)
+    },
+    setEscapeCloseHandler(shouldPrevent: () => boolean) {
+      escapeCloseHandler = shouldPrevent
     },
   }
 }
