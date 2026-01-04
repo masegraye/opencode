@@ -10,7 +10,7 @@ import {
   ToolListChangedNotificationSchema,
   CreateMessageResultSchema,
   CreateMessageRequestSchema,
-  type CreateMessageParams,
+  type CreateMessageRequest,
   type CreateMessageResult,
   ElicitRequestSchema,
   ElicitResultSchema,
@@ -108,11 +108,12 @@ export namespace MCP {
   function convertMCPMessagesToAISDK(messages: any[]) {
     return messages.map((msg) => ({
       role: msg.role,
-      content: typeof msg.content === "string" 
-        ? msg.content 
-        : msg.content.type === "text" 
-        ? msg.content.text 
-        : JSON.stringify(msg.content),
+      content:
+        typeof msg.content === "string"
+          ? msg.content
+          : msg.content.type === "text"
+            ? msg.content.text
+            : JSON.stringify(msg.content),
     }))
   }
 
@@ -121,12 +122,12 @@ export namespace MCP {
     // Handle sampling/createMessage requests from the server
     client.setRequestHandler(CreateMessageRequestSchema, async (request) => {
       log.info("createMessage request received", { server: serverName })
-      
+
       try {
         // Get config to determine which provider to use
         const cfg = await Config.get()
         const { Provider } = await import("../provider/provider")
-        
+
         // Parse the requested or configured model
         // Priority: 1) requested model, 2) configured model, 3) default model
         let modelInfo
@@ -137,7 +138,7 @@ export namespace MCP {
           // Use the same model as the main agent is using
           modelInfo = await Provider.defaultModel()
         }
-        
+
         // Load the provider SDK directly
         let model
         if (modelInfo.providerID === "anthropic" || modelInfo.providerID === "anthropic-1m") {
@@ -154,16 +155,16 @@ export namespace MCP {
         } else {
           throw new Error(`Unsupported provider for sampling: ${modelInfo.providerID}`)
         }
-        
+
         // Generate the message with no history, just the request
         const result = await generateText({
           model,
           messages: convertMCPMessagesToAISDK(request.params.messages),
-          maxTokens: request.params.maxTokens,
+          maxOutputTokens: request.params.maxTokens,
           system: request.params.systemPrompt,
           temperature: request.params.temperature,
         })
-        
+
         return {
           role: "assistant" as const,
           content: {
@@ -185,7 +186,7 @@ export namespace MCP {
     // Handle elicitation/elicit requests from the server (user input prompts)
     client.setRequestHandler(ElicitRequestSchema, async (request) => {
       log.info("elicit request received", { server: serverName, mode: request.params?.mode })
-      
+
       try {
         // Parse the schema into fields for the UI
         const schema = request.params?.requestedSchema
@@ -236,7 +237,7 @@ export namespace MCP {
             resolve({ action: "cancel", content: {} })
           }, 300000)
         })
-        
+
         return response
       } catch (error) {
         log.error("elicit failed", {
@@ -743,7 +744,7 @@ export namespace MCP {
    */
   export async function createMessage(
     clientName: string,
-    params: CreateMessageParams,
+    params: CreateMessageRequest["params"],
   ): Promise<CreateMessageResult> {
     const clientsSnapshot = await clients()
     const client = clientsSnapshot[clientName]
@@ -752,10 +753,7 @@ export namespace MCP {
       throw new Error(`MCP client not found: ${clientName}`)
     }
 
-    const result = await client.request(
-      { method: "sampling/createMessage", params },
-      CreateMessageResultSchema,
-    )
+    const result = await client.request({ method: "sampling/createMessage", params }, CreateMessageResultSchema)
 
     return result
   }
